@@ -145,8 +145,11 @@ to hear, elegantly.`,
 
     VOICE: {
       LANGS: ["en-GB"],
-      NAMES: ["arthur","daniel","oliver","george","ryan","brian","uk english male"],
+      NAMES: ["arthur","daniel","oliver","george","ryan","brian","jamie","uk english male"],
       RATE: 0.97, PITCH: 0.94,
+      LILT: 0.055,      // pitch travel across a sentence (musicality)
+      PACE: 0.05,       // how much the speed varies clause to clause
+      BREATH: 1.25,     // pause length multiplier — measured, unhurried
     },
   },
 
@@ -190,9 +193,14 @@ means dense, never incomplete.`,
     STYLE: "Default to very short, energetic spoken answers. Momentum over ceremony — never over completeness.",
 
     VOICE: {
-      LANGS: ["en-IE","en-GB"],
-      NAMES: ["moira","serena","kate","martha","sonia","libby","niamh","uk english female"],
-      RATE: 1.07, PITCH: 1.06,
+      /* Irish first — Moira on Apple devices is the classic FRIDAY voice */
+      LANGS: ["en-IE","en-GB","en-AU"],
+      NAMES: ["moira","siri","nicky","aoife","niamh","serena","kate","martha",
+              "sonia","libby","fiona","karen","tessa","samantha","uk english female"],
+      RATE: 1.04, PITCH: 1.07,
+      LILT: 0.15,       // a real lilt: pitch rises and falls noticeably
+      PACE: 0.13,       // she speeds through asides, slows on the point
+      BREATH: 0.8,      // quick, light breaths between thoughts
     },
   },
 };
@@ -832,6 +840,7 @@ body.tier-heavy .mic{width:52px;height:52px}
           <div class="vital"><span>UPTIME</span><b id="vUptime">00:00:00</b></div>
           <div class="vital"><span>TRANSMISSIONS</span><b id="vMsgs">0</b></div>
           <div class="vital"><span>LAST RESPONSE</span><b id="vLat">—</b></div>
+          <div class="vital"><span>VOICE</span><b id="vVoice">—</b></div>
           <div class="vital"><span>MIC GATE</span><b id="vGate">—</b></div>
           <div class="vital"><span>TIER</span><b id="vTier">—</b></div>
           <div class="vital"><span>BUILD</span><b id="vBuild">—</b></div>
@@ -1099,16 +1108,27 @@ function pickVoice(){
   if(!vs.length) return;
   const V = mode().VOICE;
   const score = v => {
-    const n = v.name.toLowerCase();
+    const n = (v.name || '').toLowerCase();
+    const lang = (v.lang || '').toLowerCase();
     let s = 0;
-    if(V.NAMES.some(p => n.includes(p))) s += 9;
-    if(/natural|neural|premium|enhanced|hd/.test(n)) s += 6;
-    V.LANGS.forEach((l,i)=>{ if(v.lang.toLowerCase().startsWith(l.toLowerCase())) s += 5 - i; });
-    if(/^en/i.test(v.lang)) s += 1;
-    if(/compact|espeak/.test(n)) s -= 4;
+    /* the named favourites for this persona */
+    V.NAMES.forEach((p, i)=>{ if(n.includes(p)) s += 12 - Math.min(i, 6); });
+    /* quality tiers actually worth chasing */
+    if(/premium|enhanced|neural|natural|siri/.test(n)) s += 14;
+    if(/google/.test(n)) s += 6;          /* Google voices beat OS defaults */
+    if(/\(.*(premium|enhanced).*\)/.test(n)) s += 4;
+    /* the right accent */
+    V.LANGS.forEach((l, i)=>{ if(lang.startsWith(l.toLowerCase())) s += 8 - i * 2; });
+    if(/^en/.test(lang)) s += 2;
+    if(v.localService === false) s += 2;  /* cloud voices usually sound better */
+    /* the tinny ones */
+    if(/compact|espeak|pico|robot|novelty|whisper|zarvox|bells|bubbles|trinoids/.test(n)) s -= 20;
     return s;
   };
-  chosenVoice = vs.slice().sort((a,b)=>score(b)-score(a))[0] || null;
+  const ranked = vs.slice().sort((a,b)=> score(b) - score(a));
+  chosenVoice = ranked[0] || null;
+  const vv = $('vVoice');
+  if(vv && chosenVoice) vv.textContent = (chosenVoice.name || '').slice(0, 18).toUpperCase();
 }
 if('speechSynthesis' in window){
   pickVoice();
@@ -1124,7 +1144,7 @@ function paintVoice(){
 paintVoice();
 voiceBtn.addEventListener('click', ()=>{
   voiceOn = !voiceOn;
-  if(!voiceOn && 'speechSynthesis' in window) speechSynthesis.cancel();
+  if(!voiceOn) cancelSpeech();
   paintVoice();
 });
 
@@ -1143,51 +1163,127 @@ function speakable(text){
     .replace(/\s+/g,' ').trim();
 }
 /* break into sentence-sized phrases so delivery breathes */
+/* Break speech where a person actually breathes: full stops get a real
+   pause, commas a short catch, and each clause is told where it sits in
+   its sentence so the voice can rise into it and settle out of it.     */
 function phrases(s){
-  const raw = s.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [s];
+  const sentences = s.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [s];
   const out = [];
-  for(const r of raw){
-    const t = r.trim();
-    if(!t) continue;
-    if(out.length && t.length < 14) out[out.length-1] += ' ' + t;
-    else out.push(t);
+  for(const raw of sentences){
+    const sent = raw.trim();
+    if(!sent) continue;
+    const isQ = /\?["')\]]*$/.test(sent);
+    const isEx = /!["')\]]*$/.test(sent);
+    /* split the sentence at internal punctuation into breath groups */
+    let groups = sent.match(/[^,;:]+[,;:]?\s*/g) || [sent];
+    groups = groups.map(g=>g.trim()).filter(Boolean);
+    /* fold scraps into their neighbour so nothing sounds clipped */
+    const merged = [];
+    for(const g of groups){
+      if(merged.length && (g.length < 16 || merged[merged.length-1].length < 16))
+        merged[merged.length-1] += ' ' + g;
+      else merged.push(g);
+    }
+    merged.forEach((text, i)=>{
+      const last = i === merged.length - 1;
+      const comma = /[,;:]$/.test(text);
+      out.push({
+        text,
+        pos: merged.length > 1 ? i / (merged.length - 1) : 0,  /* 0 → 1 through the sentence */
+        last, isQ: isQ && last, isEx: isEx && last,
+        /* a comma is a catch of breath; a full stop is a real one */
+        pause: last ? (isQ ? 300 : isEx ? 260 : 330) : (comma ? 150 : 90),
+      });
+    });
   }
   return out;
 }
+let speechTimers = [];
+function clearSpeechTimers(){
+  speechTimers.forEach(t=>clearTimeout(t));
+  speechTimers = [];
+}
+function cancelSpeech(){
+  clearSpeechTimers();
+  try{ cancelSpeech(); }catch(_e){}
+  speaking = false;
+}
+
+/* ═══════════════════ PROSODY — human delivery ═══════════════════
+   A robot voice is usually a timing problem, not a voice problem: the
+   browser queues sentences shoulder to shoulder at one flat pitch. So
+   we speak one breath group at a time, chained through onend with a
+   real silence between them, and shape each group — pitch rises into a
+   sentence and settles at its close, questions lift at the end, asides
+   quicken, the final clause slows the way a person lands a thought.  */
 function speak(text, onEnd){
   let finished = false;
   let nudge = null, watchdog = null;
   const finish = ()=>{
     if(finished) return;
     finished = true;
-    clearInterval(nudge); clearTimeout(watchdog);
+    clearInterval(nudge); clearTimeout(watchdog); clearSpeechTimers();
     speaking = false;
     if(onEnd) onEnd();
   };
   if(!voiceOn || !('speechSynthesis' in window)){ finish(); return; }
-  speechSynthesis.cancel();
+  cancelSpeech();
   const clean = speakable(text);
   if(!clean){ finish(); return; }
   const parts = phrases(clean);
+  if(!parts.length){ finish(); return; }
   const V = mode().VOICE;
+  const LILT   = V.LILT   != null ? V.LILT   : 0.08;
+  const PACE   = V.PACE   != null ? V.PACE   : 0.06;
+  const BREATH = V.BREATH != null ? V.BREATH : 1;
   speaking = true;
   pauseListening();                      /* never listen to ourselves */
-  /* Chrome quietly pauses long speech mid-stream; nudging resume() keeps it talking */
-  nudge = setInterval(()=>{ try{ speechSynthesis.resume(); }catch(_e){} }, 4000);
-  /* and if the engine stalls outright, cut it loose instead of hanging the loop */
+  /* Chrome quietly stalls long speech; nudging resume() keeps it alive */
+  nudge = setInterval(()=>{
+    try{ if(!held) speechSynthesis.resume(); }catch(_e){}
+  }, 4000);
   const estMs = (clean.length / 5) / (170 * V.RATE) * 60000;
-  watchdog = setTimeout(()=>{ try{ speechSynthesis.cancel(); }catch(_e){} finish(); }, estMs * 1.6 + 3000);
-  parts.forEach((p, idx)=>{
-    const u = new SpeechSynthesisUtterance(p);
+  watchdog = setTimeout(()=>{ cancelSpeech(); finish(); }, estMs * 2.2 + 8000);
+
+  const say = (i)=>{
+    if(finished) return;
+    if(i >= parts.length){ finish(); return; }
+    if(held){                              /* PAUSE holds the line */
+      speechTimers.push(setTimeout(()=> say(i), 300));
+      return;
+    }
+    const p = parts[i];
+    const u = new SpeechSynthesisUtterance(p.text);
     if(chosenVoice) u.voice = chosenVoice;
-    /* tiny per-phrase drift: enough to sound alive, never drunk */
-    const j = (Math.sin(idx * 2.7) + 1) / 2;
-    u.rate  = Math.max(.8, Math.min(1.3, V.RATE  * (0.985 + j * 0.04)));
-    u.pitch = Math.max(.6, Math.min(1.6, V.PITCH + (j - 0.5) * 0.06));
-    if(idx === parts.length - 1) u.onend = finish;
-    u.onerror = finish;
-    speechSynthesis.speak(u);
-  });
+
+    /* pitch contour: lift into the sentence, settle out of it */
+    let pitch = V.PITCH + LILT * (0.55 - p.pos);
+    if(p.isQ)  pitch += LILT * 1.5;        /* questions rise at the end   */
+    if(p.isEx) pitch += LILT * 0.8;        /* exclamations stay bright    */
+    else if(p.last) pitch -= LILT * 0.5;   /* statements land and settle  */
+    /* a hair of drift so no two sentences sound stamped from one mould */
+    pitch += Math.sin(i * 1.7 + p.text.length * 0.13) * LILT * 0.32;
+
+    /* pace: quicker through the middle, slower on the closing clause */
+    let rate = V.RATE * (1 + PACE * (0.35 - p.pos * 0.7));
+    if(p.last) rate *= (1 - PACE * 0.55);
+    if(p.text.length < 26) rate *= 1.04;   /* short asides trip along     */
+
+    u.pitch = Math.max(0.5, Math.min(1.8, pitch));
+    u.rate  = Math.max(0.6, Math.min(1.5, rate));
+    u.onend = ()=>{
+      if(finished) return;
+      const gap = Math.round(p.pause * BREATH);
+      speechTimers.push(setTimeout(()=> say(i + 1), gap));
+    };
+    u.onerror = ()=>{
+      if(finished) return;
+      speechTimers.push(setTimeout(()=> say(i + 1), 60));
+    };
+    try{ speechSynthesis.speak(u); }
+    catch(_e){ speechTimers.push(setTimeout(()=> say(i + 1), 60)); }
+  };
+  say(0);
 }
 
 /* ════════════════════════ VOICE IN (mic) ════════════════════════ */
@@ -1378,7 +1474,7 @@ if(wipeBtn) wipeBtn.addEventListener('click', ()=> wipeSession());
 if(saveBtn) saveBtn.addEventListener('click', ()=> exportTranscript());
 
 function wipeSession(){
-  if('speechSynthesis' in window) speechSynthesis.cancel();
+  cancelSpeech();
   speaking = false; pauseListening();
   history.length = 0;
   log.querySelectorAll('.msg').forEach(msgEl=> msgEl.remove());
@@ -1754,7 +1850,7 @@ function switchIO(target, followupText){
 /* ─── switches ─── */
 function switchMode(key, followupText){
   if(!MODES[key] || key === activeKey) return;
-  if('speechSynthesis' in window) speechSynthesis.cancel();
+  cancelSpeech();
   speaking = false;
   activeKey = key;
   paintMode();
@@ -2391,7 +2487,7 @@ async function runTurn(){
 async function transmit(forcedText){
   const text = (forcedText !== undefined ? forcedText : input.value).trim();
   if(!text || pending) return;
-  if('speechSynthesis' in window) speechSynthesis.cancel();
+  cancelSpeech();
   speaking = false;
   pauseListening();
 
