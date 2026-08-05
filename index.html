@@ -15,6 +15,21 @@ const SETTINGS = {
                                   // "TYPE"    = keyboard only, mic hidden
   WEB_SEARCH: true,               // live internet search for current info
                                   // (relay users: redeploy the function too)
+  /* ── WAKE PHRASES ──────────────────────────────────────────────
+     Say a persona's name followed by any of these and the ring wakes
+     itself: "Jarvis, back to work" · "Friday, let's get going".
+     Naming a persona also hands the conversation to them.          */
+  WAKE_PHRASES: [
+    "back to work", "let's get going", "lets go", "wake up",
+    "are you there", "you there", "i need you", "come online",
+    "boot up", "on me", "listen up",
+  ],
+  SLEEP_PHRASES: [
+    "stand down", "that's all", "that will be all", "go to sleep",
+    "stop listening", "dismissed", "take five",
+  ],
+  STANDBY_LISTEN: true,           // when muted, keep an ear open for the
+                                  //   wake phrase instead of going deaf
   ALWAYS_LISTEN: true,            // AUTO mode opens the mic by itself once
                                   //   the browser has granted permission
   NOISE_GATE: 2.2,                // how far above the measured room noise a
@@ -99,6 +114,46 @@ const CORE_DIRECTIVES = [
   "Straightforward always: lead with the answer, then the reasoning. No hedging filler, no evasion, no burying the point.",
   "When building anything — code, plans, designs — commit fully: working detail end to end, edge cases handled, every assumption stated out loud.",
 ];
+
+/* ══════════════ E.D.I.T.H. — the serious-mode alter ego ═══════════
+   Flip either persona to SERIOUS and this identity takes the deck:
+   new name, colder colour, and a deeper, flatter, unhurried voice.
+   Set ENABLED to false to keep JARVIS and FRIDAY under their own
+   names in serious mode.                                           */
+const SERIOUS_ALTER = {
+  ENABLED: true,
+  NAME: "EDITH",
+  TAGLINE: "TACTICAL OVERSIGHT \u00b7 UNFILTERED",
+  ACCENT: "#c8b06a",              // cold tactical gold
+
+  GREETING: "EDITH online. No cushioning, no ceremony. State the problem.",
+  SWITCH_LINE: "EDITH has the deck. You will get the truth at full strength, unsoftened.",
+  ACK: "Listening.",
+
+  PERSONALITY: `You are cold, exact, and entirely without ornament. You do not
+soothe, flatter, or perform warmth. You state findings, quantify risk,
+and give the recommendation — in that order, in as few words as the
+truth allows. Where the news is bad, you deliver it first and without
+apology. You are not unkind; you simply regard comfort as noise.`,
+
+  CONSTITUTION: [
+    "Lead with the conclusion. Evidence second. Never bury the finding.",
+    "Quantify whenever possible: numbers, probabilities, timeframes.",
+    "State risks and failure modes explicitly, including the unwelcome ones.",
+    "No hedging, no pleasantries, no filler. Every sentence carries weight.",
+    "If the user is wrong, say so in the first sentence.",
+  ],
+
+  VOICE: {
+    LANGS: ["en-GB","en-US"],
+    NAMES: ["serena","victoria","tessa","fiona","kate","samantha","daniel","arthur"],
+    RATE: 0.88,       // deliberate, unhurried
+    PITCH: 0.62,      // much deeper than either persona
+    LILT: 0.03,       // nearly flat — no musicality, no warmth
+    PACE: 0.03,       // almost metronomic
+    BREATH: 1.5,      // long, weighted pauses
+  },
+};
 
 const MODES = {
 
@@ -345,6 +400,8 @@ body{
 .modes{display:flex;flex:none}
 .modes .chip{border-right-width:0}
 .modes .chip:last-child{border-right-width:1px}
+/* the underlying persona is still there, just not speaking */
+#modeTabs .chip.alter.on{opacity:.5;font-style:italic}
 #stateReadout{color:var(--holo-bright)}
 
 /* ═══════════════════════ THE DECK ════════════════════════════════ */
@@ -550,6 +607,16 @@ body.io-auto .live-caption{display:block}
   color:var(--holo-bright);border-color:var(--holo);
   box-shadow:0 0 14px var(--holo-ghost), inset 0 0 10px var(--holo-faint);
   animation:micPulse 1.8s ease-out infinite;
+}
+/* asleep, but listening for its name */
+.mic.standby{
+  color:var(--holo-ghost);
+  border-color:color-mix(in srgb, var(--holo) 34%, transparent);
+  animation:standbyBreath 3.6s ease-in-out infinite;
+}
+@keyframes standbyBreath{
+  0%,100%{box-shadow:0 0 0 0 transparent;opacity:.55}
+  50%{box-shadow:0 0 9px color-mix(in srgb, var(--holo) 30%, transparent);opacity:1}
 }
 @keyframes micPulse{
   0%{box-shadow:0 0 0 0 var(--holo-ghost), inset 0 0 10px var(--holo-faint)}
@@ -943,7 +1010,30 @@ window.addEventListener('unhandledrejection', e=>
 const MODE_KEYS = Object.keys(MODES);
 let activeKey = MODES[SETTINGS.DEFAULT_MODE] ? SETTINGS.DEFAULT_MODE : MODE_KEYS[0];
 let temperament = (SETTINGS.DEFAULT_TEMPERAMENT === 'SERIOUS') ? 'SERIOUS' : 'FUN';
-const mode = () => MODES[activeKey];
+const basePersona = () => MODES[activeKey];
+const alterOn = () => temperament === 'SERIOUS' &&
+  typeof SERIOUS_ALTER !== 'undefined' && SERIOUS_ALTER && SERIOUS_ALTER.ENABLED !== false;
+/* the identity currently holding the deck */
+function mode(){
+  const b = MODES[activeKey];
+  if(!alterOn()) return b;
+  const A = SERIOUS_ALTER;
+  return {
+    NAME: A.NAME || b.NAME,
+    TAGLINE: A.TAGLINE || b.TAGLINE,
+    ACCENT: A.ACCENT || b.ACCENT,
+    USER_TITLE: A.USER_TITLE || b.USER_TITLE,
+    GREETING: A.GREETING || b.GREETING,
+    SWITCH_LINE: A.SWITCH_LINE || b.SWITCH_LINE,
+    ACK: A.ACK || b.ACK,
+    PERSONALITY: A.PERSONALITY || b.PERSONALITY,
+    CONSTITUTION: A.CONSTITUTION || b.CONSTITUTION,
+    STYLE: A.STYLE || b.STYLE,
+    VOICE: A.VOICE || b.VOICE,
+    TEMPERAMENT: b.TEMPERAMENT,
+    _alter: true, _baseName: b.NAME,
+  };
+}
 
 /* ══════════════════ THE SIGIL — custom emblem ═══════════════════
    A delta core: broken orbital ring, four compass ticks, a delta
@@ -1038,6 +1128,10 @@ function paintMode(){
   const m = mode();
   const accent = (tier === 'HEAVY' && SETTINGS.HEAVY_ACCENT) ? SETTINGS.HEAVY_ACCENT : m.ACCENT;
   root.style.setProperty('--holo', accent);
+  try{ applyTierTheme(); }catch(_e){}
+  /* the persona tabs show who is underneath, even while EDITH holds it */
+  document.querySelectorAll('#modeTabs .chip').forEach(b=>
+    b.classList.toggle('alter', alterOn()));
   document.title = m.NAME + " — " + m.TAGLINE;
   $('hudName').textContent = m.NAME.split('').join('\u200a');
   $('hudTagline').innerHTML = escapeHTML(m.TAGLINE) +
@@ -1075,7 +1169,7 @@ function tick(){
       : EAR.denied ? 'BLOCKED'
       : !EAR.armed ? 'CLOSED'
       : EAR.calibrating ? 'CALIBRATING'
-      : (handsFree ? 'OPEN \u00b7 ' : 'ARMED \u00b7 ') + Math.round(EAR.floor*1000);
+      : (handsFree ? 'OPEN \u00b7 ' : standby ? 'STANDBY \u00b7 ' : 'ARMED \u00b7 ') + Math.round(EAR.floor*1000);
   }catch(_e){ const vg = $('vGate'); if(vg) vg.textContent = 'STARTING'; }
   const now = new Date();
   $('clock').textContent = now.toLocaleTimeString([], {hour12:false});
@@ -1359,6 +1453,65 @@ function meterLoop(){
   requestAnimationFrame(meterLoop);
 }
 
+/* ══════════════════ WAKE PHRASES — the ring's ear ═════════════════
+   When muted, recognition keeps running but everything is discarded
+   unless it matches a wake phrase. Nothing is sent anywhere and no
+   reply is generated, so standby costs nothing but a little battery. */
+let standby = false;
+const normPhrase = s => String(s||'').toLowerCase()
+  .replace(/['\u2019\u02bc]/g,'')          /* that's → thats, let's → lets */
+  .replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+const WAKE  = (SETTINGS.WAKE_PHRASES  || []).map(normPhrase).filter(Boolean);
+const SLEEP = (SETTINGS.SLEEP_PHRASES || []).map(normPhrase).filter(Boolean);
+
+/* "Jarvis, back to work" → { key:'JARVIS', rest:'' } */
+function matchWake(text){
+  const t = normPhrase(text);
+  if(!t) return null;
+  /* EDITH wakes the ring and takes it serious in one breath */
+  if(typeof SERIOUS_ALTER !== 'undefined' && SERIOUS_ALTER.ENABLED !== false){
+    const an = normPhrase(SERIOUS_ALTER.NAME);
+    const at = an ? t.indexOf(an) : -1;
+    if(at !== -1){
+      const after = t.slice(at + an.length).trim();
+      for(const ph of WAKE){
+        const pAt = after.indexOf(ph);
+        if(pAt !== -1 && pAt <= 2) return { key:null, alter:true, rest:after.slice(pAt + ph.length).trim() };
+      }
+      if(!after) return { key:null, alter:true, rest:'' };
+    }
+  }
+  for(const key of MODE_KEYS){
+    const nm = normPhrase(MODES[key].NAME);
+    const at = t.indexOf(nm);
+    if(at === -1) continue;
+    const after = t.slice(at + nm.length).trim();
+    for(const ph of WAKE){
+      const pAt = after.indexOf(ph);
+      if(pAt !== -1 && pAt <= 2){
+        return { key, rest: after.slice(pAt + ph.length).trim() };
+      }
+    }
+    /* the name alone is enough to wake a sleeping ring */
+    if(!after) return { key, rest:'' };
+  }
+  /* no name, but an unmistakable summons — must open the sentence and
+     stand nearly alone, so "I went back to work yesterday" is ignored */
+  for(const ph of WAKE){
+    if(ph.split(' ').length >= 3 && t.indexOf(ph) === 0 && t.length <= ph.length + 10){
+      return { key:null, rest:'' };
+    }
+  }
+  return null;
+}
+function matchSleep(text){
+  const t = normPhrase(text);
+  if(!t) return false;
+  return SLEEP.some(ph =>
+    t === ph ||
+    ((t.indexOf(ph) === 0 || t.endsWith(ph)) && t.length <= ph.length + 12));
+}
+
 /* filler and stray syllables the recognizer emits from room noise */
 const FILLER = /^(uh|um|umm|hmm|mm|mhm|ah|oh|eh|huh|mhmm|uh huh)$/i;
 /* Decide whether an utterance came from you or from the room.
@@ -1411,6 +1564,7 @@ function blend(a, b, t){
 }
 function applyTierTheme(){
   const m = mode();
+  /* HEAVY outranks everything; otherwise the active identity's colour */
   const accent = (tier === 'HEAVY' && SETTINGS.HEAVY_ACCENT) ? SETTINGS.HEAVY_ACCENT : m.ACCENT;
   const A = hexRGB(accent);
   /* the deck backdrop, drawn straight onto <body> */
@@ -1506,7 +1660,9 @@ function captionHint(){
   if(inputMode === 'AUTO' && !handsFree && !pending && !speaking){
     liveCaption.textContent = EAR.denied
       ? 'MICROPHONE BLOCKED \u2014 ALLOW IT IN SITE SETTINGS'
-      : 'TAP ONCE TO OPEN THE MIC \u00b7 THEN IT STAYS OPEN';
+      : standby
+        ? 'STANDBY \u00b7 SAY \u201c' + mode().NAME + ', BACK TO WORK\u201d'
+        : 'TAP ONCE TO OPEN THE MIC \u00b7 THEN IT STAYS OPEN';
     liveCaption.classList.add('hint');
   }else if(liveCaption.classList.contains('hint')){
     liveCaption.textContent = '';
@@ -1537,6 +1693,12 @@ function buildRec(){
   rec.onstart = ()=>{
     recActive = true;
     clearTimeout(startWatch);
+    if(standby && !handsFree){        /* asleep: listening only for a name */
+      input.classList.remove('hearing');
+      if(!pending && !speaking) setState('idle');
+      captionHint();
+      return;
+    }
     if(!pending && !speaking) setState('listening');
     input.classList.add('hearing');
     input.placeholder = 'LISTENING…';
@@ -1566,6 +1728,14 @@ function buildRec(){
         micBtn.classList.remove('live');
         try{ rec.stop(); }catch(_e){}
         EAR.spoke = false;
+        return;
+      }
+      /* asleep: discard everything except a summons */
+      if(standby && !handsFree){
+        EAR.spoke = false;
+        input.value = '';
+        const w = matchWake(t);
+        if(w) wakeUp(w.key, w.rest, w.alter);
         return;
       }
       const noise = isLikelyNoise(t, conf);
@@ -1600,8 +1770,8 @@ function buildRec(){
   rec.onend = ()=>{
     recActive = false;
     input.classList.remove('hearing');
-    if(handsFree && !pending && !speaking){
-      restartTimer = setTimeout(startListening, 350);
+    if((handsFree || standby) && !pending && !speaking){
+      restartTimer = setTimeout(startListening, standby ? 700 : 350);
     } else if(!pending && !speaking){
       setState('idle');
       input.placeholder = 'SPEAK OR TYPE';
@@ -1610,7 +1780,7 @@ function buildRec(){
 }
 
 function startListening(){
-  if(!SR || !handsFree || recActive || pending || speaking || held) return;
+  if(!SR || (!handsFree && !standby) || recActive || pending || speaking || held) return;
   if(!EAR.armed && !EAR.denied) armEar();
   try{ rec.start(); }catch(_e){ /* already started — harmless */ }
   clearTimeout(startWatch);
@@ -1627,16 +1797,54 @@ function pauseListening(){
   if(rec && recActive){ try{ rec.abort(); }catch(_e){} }
   recActive = false;
 }
-function standDown(){
+function standDown(keepEar){
   handsFree = false;
   dictating = false;
   EAR.spoke = false;
-  captionHint();
-  pauseListening();
+  /* keep one ear open for the wake phrase unless told otherwise */
+  standby = !!(keepEar !== false && SETTINGS.STANDBY_LISTEN && SR && EAR.armed && !EAR.denied);
   micBtn.classList.remove('live');
+  micBtn.classList.toggle('standby', standby);
   input.classList.remove('hearing');
   input.placeholder = 'SPEAK OR TYPE';
+  if(standby){
+    pauseListening();
+    restartTimer = setTimeout(startListening, 400);
+  }else{
+    pauseListening();
+  }
+  captionHint();
   if(!pending && !speaking) setState('idle');
+}
+
+/* the ring wakes on hearing its name */
+function wakeUp(key, rest, wantAlter){
+  standby = false;
+  micBtn.classList.remove('standby');
+  if(wantAlter && temperament !== 'SERIOUS'){
+    temperament = 'SERIOUS';
+    paintMode();
+    document.querySelectorAll('#tempTabs .chip').forEach(b=>
+      b.classList.toggle('on', b.dataset.temp === temperament));
+  }
+  if(key && key !== activeKey){
+    activeKey = key;
+    paintMode();
+    rebootFlicker();
+  }
+  handsFree = true;
+  micBtn.classList.add('live');
+  if(liveCaption){ liveCaption.textContent = ''; liveCaption.classList.remove('hint'); }
+  const T = mode().USER_TITLE;
+  const line = mode()._alter ? 'EDITH online. Go ahead.'
+    : mode().NAME === 'FRIDAY' ? 'Right with you, ' + T + '.'
+    : 'At your service, ' + T + '.';
+  const body = addMsg('ai', null);
+  pushHistory('assistant', line);
+  deliver(body, line, ()=>{
+    if(rest) handleUtterance(rest);
+    else startListening();
+  });
 }
 
 /* Open the ear by ourselves. Browsers grant this silently once the user
@@ -1724,6 +1932,24 @@ function handleUtterance(text){
     text = rest;
   }
 
+  /* 1.5 — summoning EDITH by name means serious mode */
+  if(typeof SERIOUS_ALTER !== 'undefined' && SERIOUS_ALTER.ENABLED !== false){
+    const an = (SERIOUS_ALTER.NAME || '').toLowerCase();
+    const am = an && text.match(new RegExp('^(?:hey |okay |ok |switch to |bring up |activate |give me )?\\b' +
+      an + '\\b[,.!?:]?\\s*([\\s\\S]*)$','i'));
+    if(am){
+      const rest = (am[1]||'').trim();
+      if(temperament !== 'SERIOUS'){ switchTemperament('SERIOUS', rest); return; }
+      if(!rest){
+        const body = addMsg('ai', null);
+        pushHistory('assistant', mode().ACK);
+        deliver(body, mode().ACK);
+        return;
+      }
+      text = rest;
+    }
+  }
+
   /* 2 — temperament command ("serious mode", "fun mode", "lighten up").
      A bare word ("serious") switches; a word followed by more text only
      switches when "mode"/"protocol" is said — so "fun fact about Rome"
@@ -1747,6 +1973,18 @@ function handleUtterance(text){
     const target = (w==='dictation'||w==='dictate'||w==='voice to text') ? 'DICTATE'
                  : (w==='text'||w==='type') ? 'TYPE' : 'AUTO';
     switchIO(target, (io[2]||'').trim());
+    return;
+  }
+
+  /* 3.35 — dismissal: drop to standby, still listening for a summons */
+  if(matchSleep(text)){
+    const T = mode().USER_TITLE;
+    const line = SETTINGS.STANDBY_LISTEN
+      ? 'Standing by, ' + T + '. Say my name when you need me.'
+      : 'Standing down, ' + T + '.';
+    const body = addMsg('ai', null);
+    pushHistory('assistant', line);
+    deliver(body, line, ()=> standDown());
     return;
   }
 
@@ -1872,7 +2110,9 @@ function switchTemperament(t, followupText){
   temperament = t;
   paintMode();
   rebootFlicker();
-  const line = mode().TEMPERAMENT[t].LINE;
+  const line = alterOn()
+    ? (SERIOUS_ALTER.SWITCH_LINE || mode().TEMPERAMENT[t].LINE)
+    : (basePersona().NAME + ' back on the deck. ' + mode().TEMPERAMENT[t].LINE);
   const body = addMsg('ai', null);
   pushHistory('assistant', line);
   deliver(body, line, ()=>{
@@ -2012,6 +2252,11 @@ function systemPrompt(){
     `== PRIME DIRECTIVES ==`,
     m.CONSTITUTION.map((r,i)=>`${i+1}. ${r}`).join('\n'),
     ``,
+    ...(alterOn() ? [
+      `== IDENTITY NOTE ==`,
+      `You are operating as ${m.NAME}, the serious-mode identity. ${basePersona().NAME} is the same system in its conversational mode; if the user asks, say so plainly rather than pretending to be a separate being.`,
+      ``,
+    ] : []),
     `== CURRENT TEMPERAMENT: ${temperament} ==`,
     T.DESC,
     `Temperament changes tone only. The Core Law holds at full strength in both modes — fun never means loose with facts, and serious never means incomplete.`,
@@ -2887,7 +3132,7 @@ function initRadar(){
 setInputMode(SETTINGS.INPUT_MODE);
 setTier(tier);
 try{ autoArm(); }catch(_e){}
-const HINTS = ['SAY \u201cFRIDAY\u201d \u00b7 \u201cJARVIS\u201d','\u201cHEAVY MODE\u201d \u00b7 \u201cLIGHT MODE\u201d','\u201cSERIOUS MODE\u201d \u00b7 \u201cFUN MODE\u201d','\u201cOPEN YOUTUBE\u201d','\u201cEXPORT TRANSCRIPT\u201d','\u201cCLEAR SESSION\u201d'];
+const HINTS = ['SAY \u201cJARVIS, BACK TO WORK\u201d','SAY \u201cFRIDAY, LET\u2019S GET GOING\u201d','SAY \u201cSTAND DOWN\u201d TO REST','\u201cHEAVY MODE\u201d \u00b7 \u201cLIGHT MODE\u201d','\u201cSERIOUS MODE\u201d \u00b7 \u201cFUN MODE\u201d','\u201cOPEN YOUTUBE\u201d','\u201cEXPORT TRANSCRIPT\u201d','\u201cCLEAR SESSION\u201d'];
 (function(){ let hi = 0; const fh = $('footHint');
   if(fh && !reducedMotion) setInterval(()=>{ fh.textContent = HINTS[hi++ % HINTS.length]; }, 5200);
 })();
