@@ -400,8 +400,18 @@ body{
 .modes{display:flex;flex:none}
 .modes .chip{border-right-width:0}
 .modes .chip:last-child{border-right-width:1px}
-/* the underlying persona is still there, just not speaking */
-#modeTabs .chip.alter.on{opacity:.5;font-style:italic}
+/* the persona underneath EDITH: still marked, dimmed, not speaking */
+#modeTabs .chip.beneath{
+  opacity:.62;font-style:italic;
+  border-color:color-mix(in srgb, var(--holo) 22%, transparent);
+}
+#modeTabs .chip.beneath::after{content:"\00b7";margin-left:5px;opacity:.8}
+/* EDITH's chip reads colder than the personas */
+#modeTabs .chip.alterchip{letter-spacing:.26em}
+#modeTabs .chip.alterchip.on{
+  border-color:var(--holo);color:#fff;
+  box-shadow:inset 0 0 12px color-mix(in srgb, var(--holo) 18%, transparent);
+}
 #stateReadout{color:var(--holo-bright)}
 
 /* ═══════════════════════ THE DECK ════════════════════════════════ */
@@ -1129,9 +1139,6 @@ function paintMode(){
   const accent = (tier === 'HEAVY' && SETTINGS.HEAVY_ACCENT) ? SETTINGS.HEAVY_ACCENT : m.ACCENT;
   root.style.setProperty('--holo', accent);
   try{ applyTierTheme(); }catch(_e){}
-  /* the persona tabs show who is underneath, even while EDITH holds it */
-  document.querySelectorAll('#modeTabs .chip').forEach(b=>
-    b.classList.toggle('alter', alterOn()));
   document.title = m.NAME + " — " + m.TAGLINE;
   $('hudName').textContent = m.NAME.split('').join('\u200a');
   $('hudTagline').innerHTML = escapeHTML(m.TAGLINE) +
@@ -1142,8 +1149,13 @@ function paintMode(){
   $('dirList').innerHTML = m.CONSTITUTION.map((d,i)=>
     `<div class="directive"><em>${String(i+1).padStart(2,'0')}</em><span>${escapeHTML(d)}</span></div>`
   ).join('');
-  document.querySelectorAll('#modeTabs .chip').forEach(b=>
-    b.classList.toggle('on', b.dataset.key === activeKey));
+  const onAlter = alterOn();
+  document.querySelectorAll('#modeTabs .chip').forEach(b=>{
+    const isAlterChip = b.dataset.key === '__ALTER__';
+    b.classList.toggle('on', isAlterChip ? onAlter : (!onAlter && b.dataset.key === activeKey));
+    /* the persona underneath stays marked, just not speaking */
+    b.classList.toggle('beneath', !isAlterChip && onAlter && b.dataset.key === activeKey);
+  });
   document.querySelectorAll('#tempTabs .chip').forEach(b=>
     b.classList.toggle('on', b.dataset.temp === temperament));
   setFavicon();
@@ -1152,9 +1164,37 @@ function paintMode(){
 
 /* mode tabs, built from whatever MODES contains */
 $('modeTabs').innerHTML = MODE_KEYS.map(k=>
-  `<button class="chip" type="button" data-key="${k}">${escapeHTML(MODES[k].NAME)}</button>`).join('');
+  `<button class="chip" type="button" data-key="${k}">${escapeHTML(MODES[k].NAME)}</button>`).join('') +
+  ((typeof SERIOUS_ALTER !== 'undefined' && SERIOUS_ALTER.ENABLED !== false)
+    ? `<button class="chip alterchip" type="button" data-key="__ALTER__">${escapeHTML(SERIOUS_ALTER.NAME)}</button>`
+    : '');
 document.querySelectorAll('#modeTabs .chip').forEach(b=>
-  b.addEventListener('click', ()=> switchMode(b.dataset.key)));
+  b.addEventListener('click', ()=> switchIdentity(b.dataset.key)));
+
+/* One control for who holds the deck. Clicking EDITH goes serious;
+   clicking a persona hands it back to them and lightens the tone,
+   both in a single announcement rather than two. */
+function switchIdentity(key){
+  if(key === '__ALTER__'){
+    if(!alterOn()) switchTemperament('SERIOUS');
+    return;
+  }
+  if(!MODES[key]) return;
+  const wasAlter = alterOn();
+  const samePersona = key === activeKey;
+  if(samePersona && !wasAlter) return;
+  cancelSpeech();
+  activeKey = key;
+  if(wasAlter) temperament = 'FUN';
+  paintMode();
+  rebootFlicker();
+  const line = wasAlter
+    ? MODES[key].NAME + ' back on the deck. ' + MODES[key].TEMPERAMENT.FUN.LINE
+    : MODES[key].SWITCH_LINE;
+  const body = addMsg('ai', null);
+  pushHistory('assistant', line);
+  deliver(body, line);
+}
 document.querySelectorAll('#tempTabs .chip').forEach(b=>
   b.addEventListener('click', ()=> switchTemperament(b.dataset.temp)));
 
